@@ -25,7 +25,7 @@ except:
     finnhub_client = None
 
 CATALYST_KEYWORDS = ["upgrade", "downgrade", "fda", "partnership", "product", "earnings", "guidance"]
-GAP_THRESHOLD = 5.0
+GAP_THRESHOLD = 0.5 # Test uchun 0.5% qildim. Dushanba buni 5.0 qilib qo'yasiz.
 
 @st.cache_data(ttl=60)
 def get_dashboard_data():
@@ -145,10 +145,19 @@ def get_dashboard_data():
 
 def draw_candle_chart(ticker):
     try:
-        # 5m chart
-        data = yf.download(ticker, period="5d", interval="5m", progress=False)
-        if len(data) == 0: return go.Figure()
+        # Chart uchun eng barqaror usul va 5m timeframe
+        stock = yf.Ticker(ticker)
+        data = stock.history(period="5d", interval="5m")
         
+        if data.empty: 
+            return go.Figure()
+        
+        # Mahalliy vaqt zonasini NY vaqtiga o'zgartirish (Chart to'g'ri ko'rsatishi uchun)
+        if data.index.tz is not None:
+            data.index = data.index.tz_convert('America/New_York')
+        else:
+            data.index = data.index.tz_localize('UTC').tz_convert('America/New_York')
+            
         fig = go.Figure(data=[go.Candlestick(
             x=data.index, open=data['Open'], high=data['High'], low=data['Low'], close=data['Close'],
             increasing_line_color='#26a69a', decreasing_line_color='#ef5350'
@@ -158,11 +167,16 @@ def draw_candle_chart(ticker):
             template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
             margin=dict(l=0, r=0, t=40, b=0),
             title=dict(text=f"<b>{ticker}</b>", font=dict(size=24, color='#d1d4dc')),
-            xaxis=dict(showgrid=False, rangeslider=dict(visible=False)),
+            xaxis=dict(
+                showgrid=False, 
+                rangeslider=dict(visible=False),
+                # Tunni qirqib tashlash (16:00 dan 09:30 gacha bo'shliqni yo'qotish)
+                rangebreaks=[dict(bounds=[16, 9.5], pattern="hour")] 
+            ),
             yaxis=dict(showgrid=True, gridcolor='#2b2d30', gridwidth=1, side='right')
         )
         return fig
-    except:
+    except Exception as e:
         return go.Figure()
 
 with st.spinner('Skanerlanmoqda...'):
@@ -184,7 +198,7 @@ with st.spinner('Skanerlanmoqda...'):
                 gap_up_df, use_container_width=True, hide_index=True, 
                 selection_mode="single-row", on_select="rerun", column_config=col_cfg
             )
-            selected_up = gap_up_df.iloc[up_event.selection.rows[0]]['Ticker'] if up_event.selection.rows else "SPY"
+            selected_up = gap_up_df.iloc[up_event.selection.rows[0]]['Ticker'] if up_event.selection.rows else gap_up_df.iloc[0]['Ticker']
         else:
             st.info("Gap Up yo'q")
             selected_up = "SPY"
@@ -204,7 +218,7 @@ with st.spinner('Skanerlanmoqda...'):
                 gap_down_df, use_container_width=True, hide_index=True, 
                 selection_mode="single-row", on_select="rerun", column_config=col_cfg
             )
-            selected_down = gap_down_df.iloc[down_event.selection.rows[0]]['Ticker'] if down_event.selection.rows else "SPY"
+            selected_down = gap_down_df.iloc[down_event.selection.rows[0]]['Ticker'] if down_event.selection.rows else gap_down_df.iloc[0]['Ticker']
         else:
             st.info("Gap Down yo'q")
             selected_down = "SPY"
