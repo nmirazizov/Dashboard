@@ -182,7 +182,7 @@ with st.spinner('Skanerlanmoqda...'):
         if not gap_up_df.empty:
             up_event = st.dataframe(
                 gap_up_df, use_container_width=True, hide_index=True, 
-                selection_mode="single_row", on_select="rerun", column_config=col_cfg
+                selection_mode="single-row", on_select="rerun", column_config=col_cfg
             )
             selected_up = gap_up_df.iloc[up_event.selection.rows[0]]['Ticker'] if up_event.selection.rows else "SPY"
         else:
@@ -202,7 +202,7 @@ with st.spinner('Skanerlanmoqda...'):
         if not gap_down_df.empty:
             down_event = st.dataframe(
                 gap_down_df, use_container_width=True, hide_index=True, 
-                selection_mode="single_row", on_select="rerun", column_config=col_cfg
+                selection_mode="single-row", on_select="rerun", column_config=col_cfg
             )
             selected_down = gap_down_df.iloc[down_event.selection.rows[0]]['Ticker'] if down_event.selection.rows else "SPY"
         else:
