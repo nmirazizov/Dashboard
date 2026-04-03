@@ -49,7 +49,9 @@ def get_dashboard_data():
     curr_price_dict = {}
     ny_tz = pytz.timezone('America/New_York')
     now_ny = datetime.datetime.now(ny_tz)
-    cutoff_time = now_ny - datetime.timedelta(days=3)
+    
+    # --- BUGUNGI KUN FILTRI: Faqat bugungi sanadagi yangiliklar ---
+    today_start_ny = now_ny.replace(hour=0, minute=0, second=0, microsecond=0)
 
     url = "https://data.alpaca.markets/v2/stocks/snapshots"
     headers = {
@@ -104,24 +106,23 @@ def get_dashboard_data():
             
             company_name = str(info.get('shortName', ticker)).split()[0].lower()
             company_name = re.sub(r'[^a-z0-9]', '', company_name)
-            if len(company_name) < 3: 
-                company_name = ticker.lower()
             
             catalyst_url = ""
             news_time_str = "-"
             
             if finnhub_client:
-                end_date = now_ny.strftime("%Y-%m-%d")
-                start_date = (now_ny - datetime.timedelta(days=3)).strftime("%Y-%m-%d")
-                news = finnhub_client.company_news(ticker, _from=start_date, to=end_date)
+                # Finnhub API uchun bugungi sanani formatlash
+                fetch_date = now_ny.strftime("%Y-%m-%d")
+                news = finnhub_client.company_news(ticker, _from=fetch_date, to=fetch_date)
                 
                 for article in reversed(news):
                     ts = article.get('datetime', 0)
                     if ts == 0: continue
                     
-                    # UTC vaqtini NY vaqtiga o'girish
                     article_ny_time = datetime.datetime.fromtimestamp(ts, tz=pytz.utc).astimezone(ny_tz)
-                    if article_ny_time < cutoff_time: continue
+                    
+                    # Faqat bugungi yarim tundan keyingi xabarlarni oladi
+                    if article_ny_time < today_start_ny: continue
                     
                     headline = article['headline'].lower()
                     if ticker.lower() not in headline and company_name not in headline: continue
@@ -146,13 +147,15 @@ def get_dashboard_data():
 ny_tz_main = pytz.timezone('America/New_York')
 now_ny_main = datetime.datetime.now(ny_tz_main)
 
+# Dam olish kuni ogohlantirishi
 if now_ny_main.date().weekday() >= 5 or now_ny_main.date() == datetime.date(2026, 4, 3):
-    st.warning("Eslatma: Bugun birja yopiq. Dashboard oxirgi savdo kuni ma'lumotlarini ko'rsatmoqda.")
+    st.warning(f"Eslatma: Bugun ({now_ny_main.strftime('%Y-%m-%d')}) birja yopiq yoki dam olish kuni.")
 
 with st.spinner('Skanerlanmoqda...'):
     df = get_dashboard_data()
 
     if not df.empty:
+        # Catalyst bor-yo'qligini aniqlash
         gap_up_df = df[df["Gap %"] > 0].copy().sort_values(by="Gap %", ascending=False)
         gap_down_df = df[df["Gap %"] < 0].copy().sort_values(by="Gap %", ascending=True)
 
@@ -163,38 +166,36 @@ with st.spinner('Skanerlanmoqda...'):
 
         with col1:
             st.markdown("<h4 style='text-align: center; color: #28a745;'>Gap Up</h4>", unsafe_allow_html=True)
-            st.markdown("<h6 style='text-align: center; color: #28a745;'>With Catalyst</h6>", unsafe_allow_html=True)
+            
+            # With Catalyst
+            st.markdown("<h6 style='text-align: center; color: #28a745;'>Today's Catalyst Only</h6>", unsafe_allow_html=True)
             gap_up_cat = gap_up_df[gap_up_df["Link"] != ""]
             if not gap_up_cat.empty:
-                styled_up_cat = gap_up_cat.style.map(color_green, subset=['Gap %']).format({'Price': '{:.2f}', 'Gap %': '{:+.2f}%'})
-                st.dataframe(styled_up_cat, width='stretch', height=350, hide_index=True, column_config={"Link": st.column_config.LinkColumn("Link", display_text="🔗 News")})
+                st.dataframe(gap_up_cat.style.map(color_green, subset=['Gap %']).format({'Price': '{:.2f}', 'Gap %': '{:+.2f}%'}), width='stretch', height=350, hide_index=True, column_config={"Link": st.column_config.LinkColumn("Link", display_text="🔗 News")})
             else:
-                st.info("Gap Up with Catalyst yo'q")
+                st.info("Bugungi catalyst topilmadi")
 
-            st.markdown("<h6 style='text-align: center; color: #28a745; margin-top: 20px;'>Without Catalyst</h6>", unsafe_allow_html=True)
+            # Without Catalyst
+            st.markdown("<h6 style='text-align: center; color: #28a745; margin-top: 20px;'>No Today's News</h6>", unsafe_allow_html=True)
             gap_up_no_cat = gap_up_df[gap_up_df["Link"] == ""]
             if not gap_up_no_cat.empty:
-                styled_up_no_cat = gap_up_no_cat.style.map(color_green, subset=['Gap %']).format({'Price': '{:.2f}', 'Gap %': '{:+.2f}%'})
-                st.dataframe(styled_up_no_cat, width='stretch', height=350, hide_index=True, column_config={"Link": st.column_config.LinkColumn("Link", display_text="🔗 News")})
-            else:
-                st.info("Gap Up without Catalyst yo'q")
+                st.dataframe(gap_up_no_cat.style.map(color_green, subset=['Gap %']).format({'Price': '{:.2f}', 'Gap %': '{:+.2f}%'}), width='stretch', height=350, hide_index=True)
 
         with col2:
             st.markdown("<h4 style='text-align: center; color: #dc3545;'>Gap Down</h4>", unsafe_allow_html=True)
-            st.markdown("<h6 style='text-align: center; color: #dc3545;'>With Catalyst</h6>", unsafe_allow_html=True)
+            
+            # With Catalyst
+            st.markdown("<h6 style='text-align: center; color: #dc3545;'>Today's Catalyst Only</h6>", unsafe_allow_html=True)
             gap_down_cat = gap_down_df[gap_down_df["Link"] != ""]
             if not gap_down_cat.empty:
-                styled_down_cat = gap_down_cat.style.map(color_red, subset=['Gap %']).format({'Price': '{:.2f}', 'Gap %': '{:+.2f}%'})
-                st.dataframe(styled_down_cat, width='stretch', height=350, hide_index=True, column_config={"Link": st.column_config.LinkColumn("Link", display_text="🔗 News")})
+                st.dataframe(gap_down_cat.style.map(color_red, subset=['Gap %']).format({'Price': '{:.2f}', 'Gap %': '{:+.2f}%'}), width='stretch', height=350, hide_index=True, column_config={"Link": st.column_config.LinkColumn("Link", display_text="🔗 News")})
             else:
-                st.info("Gap Down with Catalyst yo'q")
+                st.info("Bugungi catalyst topilmadi")
 
-            st.markdown("<h6 style='text-align: center; color: #dc3545; margin-top: 20px;'>Without Catalyst</h6>", unsafe_allow_html=True)
+            # Without Catalyst
+            st.markdown("<h6 style='text-align: center; color: #dc3545; margin-top: 20px;'>No Today's News</h6>", unsafe_allow_html=True)
             gap_down_no_cat = gap_down_df[gap_down_df["Link"] == ""]
             if not gap_down_no_cat.empty:
-                styled_down_no_cat = gap_down_no_cat.style.map(color_red, subset=['Gap %']).format({'Price': '{:.2f}', 'Gap %': '{:+.2f}%'})
-                st.dataframe(styled_down_no_cat, width='stretch', height=350, hide_index=True, column_config={"Link": st.column_config.LinkColumn("Link", display_text="🔗 News")})
-            else:
-                st.info("Gap Down without Catalyst yo'q")
+                st.dataframe(gap_down_no_cat.style.map(color_red, subset=['Gap %']).format({'Price': '{:.2f}', 'Gap %': '{:+.2f}%'}), width='stretch', height=350, hide_index=True)
     else:
         st.info("Ma'lumot topilmadi.")
