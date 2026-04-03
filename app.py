@@ -5,6 +5,7 @@ import pandas as pd
 import datetime
 import re
 import os
+import requests
 
 # --- FON RANGI ---
 st.set_page_config(page_title="Dashboard", layout="wide")
@@ -21,6 +22,10 @@ header[data-testid="stHeader"] {
 """, unsafe_allow_html=True)
 
 # --- SOZLAMALAR ---
+# Shaxsiy API kalitlaringizni shu yerga kiriting
+ALPACA_API_KEY = "PK55BI3HEWGNMUZGMSXMHXT4NX"
+ALPACA_SECRET_KEY = "4MeXpeZNQkM9TRyrMokm8b8CVbqd6V1zUASCXWgdsJwg"
+
 FINNHUB_API_KEY = "d76mohpr01qtg3ne69ugd76mohpr01qtg3ne69v0"
 try:
     finnhub_client = finnhub.Client(api_key=FINNHUB_API_KEY)
@@ -28,17 +33,21 @@ except:
     finnhub_client = None
 
 CATALYST_KEYWORDS = ["upgrade", "downgrade", "fda", "partnership", "product", "earnings", "guidance"]
-GAP_THRESHOLD = 5.0
+GAP_THRESHOLD = 5.0 
 
 @st.cache_data(ttl=60)
 def get_dashboard_data():
+    if ALPACA_API_KEY == "shu_yerga_yozasiz":
+        st.error("Iltimos, kod ichiga Alpaca API kalitlarini kiriting.")
+        return pd.DataFrame()
+
     if os.path.exists("tickers.csv"):
         try:
             df_csv = pd.read_csv("tickers.csv")
             if "Ticker" in df_csv.columns:
                 TICKERS = df_csv["Ticker"].dropna().astype(str).tolist()
             else:
-                st.error("CSV faylda 'Ticker' ustuni yq. Finviz export formatini tekshiring.")
+                st.error("CSV faylda 'Ticker' ustuni yo'q. Finviz export formatini tekshiring.")
                 return pd.DataFrame()
         except Exception as e:
             st.error(f"Faylni o'qishda xatolik: {e}")
@@ -49,83 +58,59 @@ def get_dashboard_data():
 
     gap_pct = {}
     curr_price_dict = {}
+    
     ny_tz = 'America/New_York'
     now_ny = pd.Timestamp.now(tz=ny_tz)
-    
-    # --- KECHAGI KUNNI QAYTARISH ---
-    now_ny = now_ny - pd.Timedelta(days=1)
-    now_ny = now_ny.replace(hour=10, minute=30)
-    # -------------------------------
-    
-    today_ny = now_ny.date()
-    
-    days_back = 3 if now_ny.weekday() == 0 else 1
-    cutoff_time = now_ny - pd.Timedelta(days=days_back)
     market_open_time = datetime.time(9, 30)
+    cutoff_time = now_ny - pd.Timedelta(days=3)
 
+    url = "https://data.alpaca.markets/v2/stocks/snapshots"
+    headers = {
+        "APCA-API-KEY-ID": ALPACA_API_KEY,
+        "APCA-API-SECRET-KEY": ALPACA_SECRET_KEY,
+        "accept": "application/json"
+    }
+
+    # Batching: 100 ta aksiyani 1 ta zaprosda tortib olish
     chunk_size = 100
     for i in range(0, len(TICKERS), chunk_size):
         chunk = TICKERS[i:i + chunk_size]
         try:
-            d_data = yf.download(chunk, period="5d", progress=False)
-            m_data = yf.download(chunk, period="1d", interval="1m", prepost=True, progress=False)
-            
-            if len(chunk) == 1:
-                d_close = d_data['Close'].to_frame(name=chunk[0])
-                d_open = d_data['Open'].to_frame(name=chunk[0])
-                m_close = m_data['Close'].to_frame(name=chunk[0])
-            else:
-                d_close = d_data['Close']
-                d_open = d_data['Open']
-                m_close = m_data['Close']
-                
-            for ticker in chunk:
-                if ticker not in d_close.columns:
-                    continue
+            res = requests.get(url, headers=headers, params={"symbols": ",".join(chunk), "feed": "iex"})
+            if res.status_code == 200:
+                data = res.json()
+                for ticker, snap in data.items():
+                    if not snap: continue
                     
-                ticker_close = d_close[ticker].dropna()
-                ticker_open = d_open[ticker].dropna()
-                
-                if len(ticker_close) == 0: continue
-                
-                dates_d = pd.to_datetime(ticker_close.index).tz_convert(ny_tz).date if ticker_close.index.tz is not None else pd.to_datetime(ticker_close.index).date
-                past_closes = ticker_close[dates_d < today_ny]
-                
-                if len(past_closes) == 0:
-                    continue
-                p_close = float(past_closes.iloc[-1])
-                c_price = p_close
-                
-                if now_ny.time() >= market_open_time:
-                    today_opens = ticker_open[dates_d == today_ny]
-                    if len(today_opens) > 0:
-                        c_price = float(today_opens.iloc[0])
-                    else:
-                        if ticker in m_close.columns:
-                            ticker_m = m_close[ticker].dropna()
-                            idx_ny = pd.to_datetime(ticker_m.index).tz_convert(ny_tz) if ticker_m.index.tz is not None else pd.to_datetime(ticker_m.index)
-                            reg_session = ticker_m[idx_ny.time >= market_open_time]
-                            if len(reg_session) > 0:
-                                c_price = float(reg_session.iloc[0])
-                else:
-                    if ticker in m_close.columns:
-                        ticker_m = m_close[ticker].dropna()
-                        if len(ticker_m) > 0:
-                            c_price = float(ticker_m.iloc[-1])
-                            
-                if p_close > 0:
-                    gap = ((c_price - p_close) / p_close) * 100
-                    if abs(gap) >= GAP_THRESHOLD:
-                        gap_pct[ticker] = gap
-                        curr_price_dict[ticker] = c_price
+                    prevDailyBar = snap.get('prevDailyBar')
+                    latestTrade = snap.get('latestTrade')
+                    dailyBar = snap.get('dailyBar')
+                    
+                    if not prevDailyBar: continue
+                    
+                    prev_close = float(prevDailyBar.get('c', 0))
+                    current_price = 0.0
+                    
+                    # Agar kun 09:30 dan o'tgan bo'lsa rasmiy Open'ni olamiz, aks holda Premarket Live narxini
+                    if dailyBar and dailyBar.get('o', 0) > 0 and now_ny.time() >= market_open_time:
+                        current_price = float(dailyBar.get('o'))
+                    elif latestTrade and latestTrade.get('p', 0) > 0:
+                        current_price = float(latestTrade.get('p'))
+                        
+                    if prev_close > 0 and current_price > 0:
+                        gap = ((current_price - prev_close) / prev_close) * 100
+                        if abs(gap) >= GAP_THRESHOLD:
+                            gap_pct[ticker] = gap
+                            curr_price_dict[ticker] = current_price
         except Exception as e:
             continue
 
     movers = list(gap_pct.keys())
-
     results = []
+    
     for ticker in movers:
         try:
+            # Sektor va yangiliklar uchun yfinance & finnhub o'z joyida ishlaydi
             info = yf.Ticker(ticker).info
             today_open = curr_price_dict.get(ticker)
             gap_val = gap_pct.get(ticker)
@@ -182,6 +167,7 @@ def get_dashboard_data():
             
     return pd.DataFrame(results)
 
+
 with st.spinner('Skanerlanmoqda...'):
     df = get_dashboard_data()
 
@@ -208,7 +194,7 @@ with st.spinner('Skanerlanmoqda...'):
                     }
                 )
             else:
-                st.info("Gap Up yq")
+                st.info("Gap Up yo'q")
 
         with col2:
             st.markdown("<h5 style='text-align: center; color: #dc3545;'>Gap Down</h5>", unsafe_allow_html=True)
@@ -224,6 +210,6 @@ with st.spinner('Skanerlanmoqda...'):
                     }
                 )
             else:
-                st.info("Gap Down yq")
+                st.info("Gap Down yo'q")
     else:
         st.info("Premarketda ma'lumot topilmadi.")
