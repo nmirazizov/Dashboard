@@ -29,6 +29,7 @@ except:
 
 CATALYST_KEYWORDS = ["upgrade", "downgrade", "fda", "partnership", "product", "earnings", "guidance"]
 GAP_THRESHOLD = 5.0
+TEST_MODE = True # Dushanba kuni buni False qilib qo'yasiz
 
 @st.cache_data(ttl=60)
 def get_dashboard_data():
@@ -51,6 +52,11 @@ def get_dashboard_data():
     curr_price_dict = {}
     ny_tz = 'America/New_York'
     now_ny = pd.Timestamp.now(tz=ny_tz)
+    
+    if TEST_MODE:
+        now_ny = now_ny - pd.Timedelta(days=1)
+        now_ny = now_ny.replace(hour=10, minute=30, second=0, microsecond=0)
+        
     today_ny = now_ny.date()
     
     days_back = 3 if now_ny.weekday() == 0 else 1
@@ -90,14 +96,11 @@ def get_dashboard_data():
                 p_close = float(past_closes.iloc[-1])
                 c_price = p_close
                 
-                # FINVIZ MANTIQI:
                 if now_ny.time() >= market_open_time:
-                    # Bozor ochilgan: Qat'iy Official Open narxni oladi
                     today_opens = ticker_open[dates_d == today_ny]
                     if len(today_opens) > 0:
                         c_price = float(today_opens.iloc[0])
                     else:
-                        # Fallback to 1m data
                         if ticker in m_close.columns:
                             ticker_m = m_close[ticker].dropna()
                             idx_ny = pd.to_datetime(ticker_m.index).tz_convert(ny_tz) if ticker_m.index.tz is not None else pd.to_datetime(ticker_m.index)
@@ -105,7 +108,6 @@ def get_dashboard_data():
                             if len(reg_session) > 0:
                                 c_price = float(reg_session.iloc[0])
                 else:
-                    # Premarket: Live narx
                     if ticker in m_close.columns:
                         ticker_m = m_close[ticker].dropna()
                         if len(ticker_m) > 0:
