@@ -158,19 +158,45 @@ with st.spinner('Skanerlanmoqda...'):
         col1, col2 = st.columns(2)
 
         with col1:
-            st.markdown("<h5 style='text-align: center; color: #28a745;'>Gap Up</h5>", unsafe_allow_html=True)
-            if not gap_up_df.empty:
-                styled_up = gap_up_df.style.map(color_green, subset=['Gap %']).format({'Price': '{:.2f}', 'Gap %': '{:+.2f}%'})
-                st.dataframe(styled_up, width='stretch', height=700, hide_index=True, column_config={"Link": st.column_config.LinkColumn("Link", display_text="🔗 News")})
+            st.markdown("<h4 style='text-align: center; color: #28a745;'>Gap Up</h4>", unsafe_allow_html=True)
+            
+            # --- Gap Up with catalyst ---
+            st.markdown("<h6 style='text-align: center; color: #28a745;'>With Catalyst</h6>", unsafe_allow_html=True)
+            gap_up_cat = gap_up_df[gap_up_df["Link"] != ""]
+            if not gap_up_cat.empty:
+                styled_up_cat = gap_up_cat.style.map(color_green, subset=['Gap %']).format({'Price': '{:.2f}', 'Gap %': '{:+.2f}%'})
+                st.dataframe(styled_up_cat, width='stretch', height=350, hide_index=True, column_config={"Link": st.column_config.LinkColumn("Link", display_text="🔗 News")})
             else:
-                st.info("Gap Up yo'q")
+                st.info("Gap Up with Catalyst yo'q")
+
+            # --- Gap Up without catalyst ---
+            st.markdown("<h6 style='text-align: center; color: #28a745; margin-top: 20px;'>Without Catalyst</h6>", unsafe_allow_html=True)
+            gap_up_no_cat = gap_up_df[gap_up_df["Link"] == ""]
+            if not gap_up_no_cat.empty:
+                styled_up_no_cat = gap_up_no_cat.style.map(color_green, subset=['Gap %']).format({'Price': '{:.2f}', 'Gap %': '{:+.2f}%'})
+                st.dataframe(styled_up_no_cat, width='stretch', height=350, hide_index=True, column_config={"Link": st.column_config.LinkColumn("Link", display_text="🔗 News")})
+            else:
+                st.info("Gap Up without Catalyst yo'q")
 
         with col2:
-            st.markdown("<h5 style='text-align: center; color: #dc3545;'>Gap Down</h5>", unsafe_allow_html=True)
-            if not gap_down_df.empty:
-                styled_down = gap_down_df.style.map(color_red, subset=['Gap %']).format({'Price': '{:.2f}', 'Gap %': '{:+.2f}%'})
-                st.dataframe(styled_down, width='stretch', height=700, hide_index=True, column_config={"Link": st.column_config.LinkColumn("Link", display_text="🔗 News")})
+            st.markdown("<h4 style='text-align: center; color: #dc3545;'>Gap Down</h4>", unsafe_allow_html=True)
+            
+            # --- Gap Down with catalyst ---
+            st.markdown("<h6 style='text-align: center; color: #dc3545;'>With Catalyst</h6>", unsafe_allow_html=True)
+            gap_down_cat = gap_down_df[gap_down_df["Link"] != ""]
+            if not gap_down_cat.empty:
+                styled_down_cat = gap_down_cat.style.map(color_red, subset=['Gap %']).format({'Price': '{:.2f}', 'Gap %': '{:+.2f}%'})
+                st.dataframe(styled_down_cat, width='stretch', height=350, hide_index=True, column_config={"Link": st.column_config.LinkColumn("Link", display_text="🔗 News")})
             else:
-                st.info("Gap Down yo'q")
+                st.info("Gap Down with Catalyst yo'q")
+
+            # --- Gap Down without catalyst ---
+            st.markdown("<h6 style='text-align: center; color: #dc3545; margin-top: 20px;'>Without Catalyst</h6>", unsafe_allow_html=True)
+            gap_down_no_cat = gap_down_df[gap_down_df["Link"] == ""]
+            if not gap_down_no_cat.empty:
+                styled_down_no_cat = gap_down_no_cat.style.map(color_red, subset=['Gap %']).format({'Price': '{:.2f}', 'Gap %': '{:+.2f}%'})
+                st.dataframe(styled_down_no_cat, width='stretch', height=350, hide_index=True, column_config={"Link": st.column_config.LinkColumn("Link", display_text="🔗 News")})
+            else:
+                st.info("Gap Down without Catalyst yo'q")
     else:
         st.info("Ma'lumot topilmadi.")
