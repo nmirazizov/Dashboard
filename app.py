@@ -6,6 +6,7 @@ import datetime
 import re
 import os
 import requests
+import pytz
 
 # --- FON RANGI ---
 st.set_page_config(page_title="Dashboard", layout="wide")
@@ -46,9 +47,9 @@ def get_dashboard_data():
 
     gap_pct = {}
     curr_price_dict = {}
-    ny_tz = 'America/New_York'
-    now_ny = pd.Timestamp.now(tz=ny_tz)
-    cutoff_time = now_ny - pd.Timedelta(days=3)
+    ny_tz = pytz.timezone('America/New_York')
+    now_ny = datetime.datetime.now(ny_tz)
+    cutoff_time = now_ny - datetime.timedelta(days=3)
 
     url = "https://data.alpaca.markets/v2/stocks/snapshots"
     headers = {
@@ -117,8 +118,10 @@ def get_dashboard_data():
                 for article in reversed(news):
                     ts = article.get('datetime', 0)
                     if ts == 0: continue
-                    ny_time = pd.to_datetime(ts, unit='s', utc=True).tz_convert('America/New_York')
-                    if ny_time < cutoff_time: continue
+                    
+                    # UTC vaqtini NY vaqtiga o'girish
+                    article_ny_time = datetime.datetime.fromtimestamp(ts, tz=pytz.utc).astimezone(ny_tz)
+                    if article_ny_time < cutoff_time: continue
                     
                     headline = article['headline'].lower()
                     if ticker.lower() not in headline and company_name not in headline: continue
@@ -126,7 +129,7 @@ def get_dashboard_data():
                     for keyword in CATALYST_KEYWORDS:
                         if re.search(rf'\b{keyword}\b', headline):
                             catalyst_url = article.get('url', "")
-                            news_time_str = ny_time.strftime('%H:%M')
+                            news_time_str = article_ny_time.strftime('%H:%M')
                             break
                     if catalyst_url: break
 
@@ -139,8 +142,9 @@ def get_dashboard_data():
             
     return pd.DataFrame(results)
 
-ny_tz_main = 'America/New_York'
-now_ny_main = pd.Timestamp.now(tz=ny_tz_main)
+# --- GLOBAL TIME CHECK ---
+ny_tz_main = pytz.timezone('America/New_York')
+now_ny_main = datetime.datetime.now(ny_tz_main)
 
 if now_ny_main.date().weekday() >= 5 or now_ny_main.date() == datetime.date(2026, 4, 3):
     st.warning("Eslatma: Bugun birja yopiq. Dashboard oxirgi savdo kuni ma'lumotlarini ko'rsatmoqda.")
@@ -159,8 +163,6 @@ with st.spinner('Skanerlanmoqda...'):
 
         with col1:
             st.markdown("<h4 style='text-align: center; color: #28a745;'>Gap Up</h4>", unsafe_allow_html=True)
-            
-            # --- Gap Up with catalyst ---
             st.markdown("<h6 style='text-align: center; color: #28a745;'>With Catalyst</h6>", unsafe_allow_html=True)
             gap_up_cat = gap_up_df[gap_up_df["Link"] != ""]
             if not gap_up_cat.empty:
@@ -169,7 +171,6 @@ with st.spinner('Skanerlanmoqda...'):
             else:
                 st.info("Gap Up with Catalyst yo'q")
 
-            # --- Gap Up without catalyst ---
             st.markdown("<h6 style='text-align: center; color: #28a745; margin-top: 20px;'>Without Catalyst</h6>", unsafe_allow_html=True)
             gap_up_no_cat = gap_up_df[gap_up_df["Link"] == ""]
             if not gap_up_no_cat.empty:
@@ -180,8 +181,6 @@ with st.spinner('Skanerlanmoqda...'):
 
         with col2:
             st.markdown("<h4 style='text-align: center; color: #dc3545;'>Gap Down</h4>", unsafe_allow_html=True)
-            
-            # --- Gap Down with catalyst ---
             st.markdown("<h6 style='text-align: center; color: #dc3545;'>With Catalyst</h6>", unsafe_allow_html=True)
             gap_down_cat = gap_down_df[gap_down_df["Link"] != ""]
             if not gap_down_cat.empty:
@@ -190,7 +189,6 @@ with st.spinner('Skanerlanmoqda...'):
             else:
                 st.info("Gap Down with Catalyst yo'q")
 
-            # --- Gap Down without catalyst ---
             st.markdown("<h6 style='text-align: center; color: #dc3545; margin-top: 20px;'>Without Catalyst</h6>", unsafe_allow_html=True)
             gap_down_no_cat = gap_down_df[gap_down_df["Link"] == ""]
             if not gap_down_no_cat.empty:
