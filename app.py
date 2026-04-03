@@ -24,7 +24,7 @@ ALPACA_SECRET_KEY = "4MeXpeZNQkM9TRyrMokm8b8CVbqd6V1zUASCXWgdsJwg"
 FINNHUB_API_KEY = "d76mohpr01qtg3ne69ugd76mohpr01qtg3ne69v0"
 try:
     finnhub_client = finnhub.Client(api_key=FINNHUB_API_KEY)
-except:
+except Exception:
     finnhub_client = None
 
 CATALYST_KEYWORDS = ["upgrade", "downgrade", "fda", "partnership", "product", "earnings", "guidance"]
@@ -39,7 +39,7 @@ def get_dashboard_data():
                 TICKERS = df_csv["Ticker"].dropna().astype(str).tolist()
             else:
                 return pd.DataFrame()
-        except:
+        except Exception:
             return pd.DataFrame()
     else:
         TICKERS = ["AMD", "NVDA", "INTC", "MU", "AAPL", "TSLA", "META", "LITE", "LLY", "NKE"]
@@ -86,7 +86,7 @@ def get_dashboard_data():
                         if abs(gap) >= GAP_THRESHOLD:
                             gap_pct[ticker] = gap
                             curr_price_dict[ticker] = current_price
-        except:
+        except Exception:
             continue
 
     movers = list(gap_pct.keys())
@@ -112,4 +112,65 @@ def get_dashboard_data():
             if finnhub_client:
                 end_date = now_ny.strftime("%Y-%m-%d")
                 start_date = (now_ny - datetime.timedelta(days=3)).strftime("%Y-%m-%d")
-                news = finnhub_client
+                news = finnhub_client.company_news(ticker, _from=start_date, to=end_date)
+                
+                for article in reversed(news):
+                    ts = article.get('datetime', 0)
+                    if ts == 0: continue
+                    ny_time = pd.to_datetime(ts, unit='s', utc=True).tz_convert('America/New_York')
+                    if ny_time < cutoff_time: continue
+                    
+                    headline = article['headline'].lower()
+                    if ticker.lower() not in headline and company_name not in headline: continue
+                    
+                    for keyword in CATALYST_KEYWORDS:
+                        if re.search(rf'\b{keyword}\b', headline):
+                            catalyst_url = article.get('url', "")
+                            news_time_str = ny_time.strftime('%H:%M')
+                            break
+                    if catalyst_url: break
+
+            results.append({
+                "Ticker": ticker, "Sector": sector, "Industry": industry,
+                "Price": today_open, "Gap %": gap_val, "Time": news_time_str, "Link": catalyst_url 
+            })
+        except Exception:
+            continue
+            
+    return pd.DataFrame(results)
+
+ny_tz_main = 'America/New_York'
+now_ny_main = pd.Timestamp.now(tz=ny_tz_main)
+
+if now_ny_main.date().weekday() >= 5 or now_ny_main.date() == datetime.date(2026, 4, 3):
+    st.warning("Eslatma: Bugun birja yopiq. Dashboard oxirgi savdo kuni ma'lumotlarini ko'rsatmoqda.")
+
+with st.spinner('Skanerlanmoqda...'):
+    df = get_dashboard_data()
+
+    if not df.empty:
+        gap_up_df = df[df["Gap %"] > 0].copy().sort_values(by="Gap %", ascending=False)
+        gap_down_df = df[df["Gap %"] < 0].copy().sort_values(by="Gap %", ascending=True)
+
+        def color_green(val): return 'color: #28a745; font-weight: bold;' if pd.notnull(val) else ''
+        def color_red(val): return 'color: #dc3545; font-weight: bold;' if pd.notnull(val) else ''
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown("<h5 style='text-align: center; color: #28a745;'>Gap Up</h5>", unsafe_allow_html=True)
+            if not gap_up_df.empty:
+                styled_up = gap_up_df.style.map(color_green, subset=['Gap %']).format({'Price': '{:.2f}', 'Gap %': '{:+.2f}%'})
+                st.dataframe(styled_up, width='stretch', height=700, hide_index=True, column_config={"Link": st.column_config.LinkColumn("Link", display_text="🔗 News")})
+            else:
+                st.info("Gap Up yo'q")
+
+        with col2:
+            st.markdown("<h5 style='text-align: center; color: #dc3545;'>Gap Down</h5>", unsafe_allow_html=True)
+            if not gap_down_df.empty:
+                styled_down = gap_down_df.style.map(color_red, subset=['Gap %']).format({'Price': '{:.2f}', 'Gap %': '{:+.2f}%'})
+                st.dataframe(styled_down, width='stretch', height=700, hide_index=True, column_config={"Link": st.column_config.LinkColumn("Link", display_text="🔗 News")})
+            else:
+                st.info("Gap Down yo'q")
+    else:
+        st.info("Ma'lumot topilmadi.")
