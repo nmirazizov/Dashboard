@@ -2,4 +2,3 @@ streamlit
 yfinance
 finnhub-python
 pandas
-requests
