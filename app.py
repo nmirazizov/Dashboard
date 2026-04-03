@@ -5,19 +5,22 @@ import pandas as pd
 import datetime
 import re
 import os
-import plotly.graph_objects as go
 
-# --- MINIMALIST DIZAYN ---
-st.set_page_config(page_title="Market Summary", layout="wide")
+# --- FON RANGI ---
+st.set_page_config(page_title="Dashboard", layout="wide")
 st.markdown("""
 <style>
-.stApp { background-color: #16181a; color: #d1d4dc; }
-header[data-testid="stHeader"] { background-color: #16181a; }
-div[data-testid="stDataFrame"] { border-radius: 8px; overflow: hidden; border: 1px solid #2b2d30; }
+.stApp {
+    background-color: #2b2d30;
+}
+header[data-testid="stHeader"] {
+    background-color: #2b2d30;
+}
 </style>
-<h3 style='text-align: left; margin-top: -40px; color: #8b92a5;'>Market Summary</h3>
+<h3 style='text-align: center; margin-top: -40px;'>Dashboard</h3>
 """, unsafe_allow_html=True)
 
+# --- SOZLAMALAR ---
 FINNHUB_API_KEY = "d76mohpr01qtg3ne69ugd76mohpr01qtg3ne69v0"
 try:
     finnhub_client = finnhub.Client(api_key=FINNHUB_API_KEY)
@@ -25,7 +28,7 @@ except:
     finnhub_client = None
 
 CATALYST_KEYWORDS = ["upgrade", "downgrade", "fda", "partnership", "product", "earnings", "guidance"]
-GAP_THRESHOLD = 0.5 # Test uchun 0.5% qildim. Dushanba buni 5.0 qilib qo'yasiz.
+GAP_THRESHOLD = 5.0
 
 @st.cache_data(ttl=60)
 def get_dashboard_data():
@@ -35,10 +38,13 @@ def get_dashboard_data():
             if "Ticker" in df_csv.columns:
                 TICKERS = df_csv["Ticker"].dropna().astype(str).tolist()
             else:
+                st.error("CSV faylda 'Ticker' ustuni yq. Finviz export formatini tekshiring.")
                 return pd.DataFrame()
-        except:
+        except Exception as e:
+            st.error(f"Faylni o'qishda xatolik: {e}")
             return pd.DataFrame()
     else:
+        st.warning("tickers.csv fayli topilmadi! Iltimos, faylni app.py papkasiga tashlang.")
         TICKERS = ["AMD", "NVDA", "INTC", "MU", "AAPL", "TSLA", "META", "LITE", "LLY", "NKE"]
 
     gap_pct = {}
@@ -46,11 +52,13 @@ def get_dashboard_data():
     ny_tz = 'America/New_York'
     now_ny = pd.Timestamp.now(tz=ny_tz)
     
-    # Kechagi kunda ishlashi uchun vaqtni orqaga suramiz
+    # --- KECHAGI KUNNI QAYTARISH ---
     now_ny = now_ny - pd.Timedelta(days=1)
     now_ny = now_ny.replace(hour=10, minute=30)
+    # -------------------------------
     
     today_ny = now_ny.date()
+    
     days_back = 3 if now_ny.weekday() == 0 else 1
     cutoff_time = now_ny - pd.Timedelta(days=days_back)
     market_open_time = datetime.time(9, 30)
@@ -72,7 +80,8 @@ def get_dashboard_data():
                 m_close = m_data['Close']
                 
             for ticker in chunk:
-                if ticker not in d_close.columns: continue
+                if ticker not in d_close.columns:
+                    continue
                     
                 ticker_close = d_close[ticker].dropna()
                 ticker_open = d_open[ticker].dropna()
@@ -82,34 +91,42 @@ def get_dashboard_data():
                 dates_d = pd.to_datetime(ticker_close.index).tz_convert(ny_tz).date if ticker_close.index.tz is not None else pd.to_datetime(ticker_close.index).date
                 past_closes = ticker_close[dates_d < today_ny]
                 
-                if len(past_closes) == 0: continue
+                if len(past_closes) == 0:
+                    continue
                 p_close = float(past_closes.iloc[-1])
                 c_price = p_close
                 
+                # FINVIZ MANTIQI:
                 if now_ny.time() >= market_open_time:
+                    # Bozor ochilgan: Qat'iy Official Open narxni oladi
                     today_opens = ticker_open[dates_d == today_ny]
                     if len(today_opens) > 0:
                         c_price = float(today_opens.iloc[0])
                     else:
+                        # Fallback to 1m data
                         if ticker in m_close.columns:
                             ticker_m = m_close[ticker].dropna()
                             idx_ny = pd.to_datetime(ticker_m.index).tz_convert(ny_tz) if ticker_m.index.tz is not None else pd.to_datetime(ticker_m.index)
                             reg_session = ticker_m[idx_ny.time >= market_open_time]
-                            if len(reg_session) > 0: c_price = float(reg_session.iloc[0])
+                            if len(reg_session) > 0:
+                                c_price = float(reg_session.iloc[0])
                 else:
+                    # Premarket: Live narx
                     if ticker in m_close.columns:
                         ticker_m = m_close[ticker].dropna()
-                        if len(ticker_m) > 0: c_price = float(ticker_m.iloc[-1])
+                        if len(ticker_m) > 0:
+                            c_price = float(ticker_m.iloc[-1])
                             
                 if p_close > 0:
                     gap = ((c_price - p_close) / p_close) * 100
                     if abs(gap) >= GAP_THRESHOLD:
                         gap_pct[ticker] = gap
                         curr_price_dict[ticker] = c_price
-        except:
+        except Exception as e:
             continue
 
     movers = list(gap_pct.keys())
+
     results = []
     for ticker in movers:
         try:
@@ -117,111 +134,100 @@ def get_dashboard_data():
             today_open = curr_price_dict.get(ticker)
             gap_val = gap_pct.get(ticker)
             
+            sector = info.get('sector', '-')
+            industry = info.get('industry', '-')
+            
             company_name = str(info.get('shortName', ticker)).split()[0].lower()
             company_name = re.sub(r'[^a-z0-9]', '', company_name)
-            if len(company_name) < 3: company_name = ticker.lower()
+            if len(company_name) < 3: 
+                company_name = ticker.lower()
             
             catalyst_url = ""
+            news_time_str = "-"
+            
             if finnhub_client:
-                news = finnhub_client.company_news(ticker, _from=(now_ny - datetime.timedelta(days=3)).strftime("%Y-%m-%d"), to=now_ny.strftime("%Y-%m-%d"))
+                end_date = now_ny.strftime("%Y-%m-%d")
+                start_date = (now_ny - datetime.timedelta(days=3)).strftime("%Y-%m-%d")
+                news = finnhub_client.company_news(ticker, _from=start_date, to=end_date)
+                
                 for article in reversed(news):
                     ts = article.get('datetime', 0)
                     if ts == 0: continue
+                    
                     ny_time = pd.to_datetime(ts, unit='s', utc=True).tz_convert('America/New_York')
-                    if ny_time < cutoff_time: continue
+                    if ny_time < cutoff_time:
+                        continue
+                        
                     headline = article['headline'].lower()
-                    if ticker.lower() not in headline and company_name not in headline: continue
+                    
+                    if ticker.lower() not in headline and company_name not in headline:
+                        continue
+                    
                     for keyword in CATALYST_KEYWORDS:
                         if re.search(rf'\b{keyword}\b', headline):
                             catalyst_url = article.get('url', "")
+                            news_time_str = ny_time.strftime('%H:%M')
                             break
-                    if catalyst_url: break
+                            
+                    if catalyst_url:
+                        break
 
-            results.append({"Ticker": ticker, "Price": today_open, "Gap %": gap_val, "Link": catalyst_url})
-        except:
+            results.append({
+                "Ticker": ticker,
+                "Sector": sector,
+                "Industry": industry,
+                "Price": today_open,
+                "Gap %": gap_val,
+                "Time": news_time_str,
+                "Link": catalyst_url 
+            })
+        except Exception as e:
             continue
             
     return pd.DataFrame(results)
 
-def draw_candle_chart(ticker):
-    try:
-        # Chart uchun eng barqaror usul va 5m timeframe
-        stock = yf.Ticker(ticker)
-        data = stock.history(period="5d", interval="5m")
-        
-        if data.empty: 
-            return go.Figure()
-        
-        # Mahalliy vaqt zonasini NY vaqtiga o'zgartirish (Chart to'g'ri ko'rsatishi uchun)
-        if data.index.tz is not None:
-            data.index = data.index.tz_convert('America/New_York')
-        else:
-            data.index = data.index.tz_localize('UTC').tz_convert('America/New_York')
-            
-        fig = go.Figure(data=[go.Candlestick(
-            x=data.index, open=data['Open'], high=data['High'], low=data['Low'], close=data['Close'],
-            increasing_line_color='#26a69a', decreasing_line_color='#ef5350'
-        )])
-        
-        fig.update_layout(
-            template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-            margin=dict(l=0, r=0, t=40, b=0),
-            title=dict(text=f"<b>{ticker}</b>", font=dict(size=24, color='#d1d4dc')),
-            xaxis=dict(
-                showgrid=False, 
-                rangeslider=dict(visible=False),
-                # Tunni qirqib tashlash (16:00 dan 09:30 gacha bo'shliqni yo'qotish)
-                rangebreaks=[dict(bounds=[16, 9.5], pattern="hour")] 
-            ),
-            yaxis=dict(showgrid=True, gridcolor='#2b2d30', gridwidth=1, side='right')
-        )
-        return fig
-    except Exception as e:
-        return go.Figure()
-
 with st.spinner('Skanerlanmoqda...'):
     df = get_dashboard_data()
 
-    col_cfg = {
-        "Price": st.column_config.NumberColumn("Price", format="%.2f"),
-        "Gap %": st.column_config.NumberColumn("Change", format="%+.2f%%"),
-        "Link": st.column_config.LinkColumn("News")
-    }
+    if not df.empty:
+        gap_up_df = df[df["Gap %"] > 0].copy().sort_values(by="Gap %", ascending=False)
+        gap_down_df = df[df["Gap %"] < 0].copy().sort_values(by="Gap %", ascending=True)
 
-    st.markdown("<h4 style='color: #26a69a;'>Gap Up</h4>", unsafe_allow_html=True)
-    up_col, chart_col1 = st.columns([1, 2])
-    
-    with up_col:
-        gap_up_df = df[df["Gap %"] > 0].copy().sort_values(by="Gap %", ascending=False) if not df.empty else pd.DataFrame()
-        if not gap_up_df.empty:
-            up_event = st.dataframe(
-                gap_up_df, use_container_width=True, hide_index=True, 
-                selection_mode="single-row", on_select="rerun", column_config=col_cfg
-            )
-            selected_up = gap_up_df.iloc[up_event.selection.rows[0]]['Ticker'] if up_event.selection.rows else gap_up_df.iloc[0]['Ticker']
-        else:
-            st.info("Gap Up yo'q")
-            selected_up = "SPY"
-            
-    with chart_col1:
-        st.plotly_chart(draw_candle_chart(selected_up), use_container_width=True, config={'displayModeBar': False}, key="gap_up_chart")
+        def color_green(val): return 'color: #28a745; font-weight: bold;' if pd.notnull(val) else ''
+        def color_red(val): return 'color: #dc3545; font-weight: bold;' if pd.notnull(val) else ''
 
-    st.markdown("<hr style='border-color: #2b2d30;'>", unsafe_allow_html=True)
+        col1, col2 = st.columns(2)
 
-    st.markdown("<h4 style='color: #ef5350;'>Gap Down</h4>", unsafe_allow_html=True)
-    down_col, chart_col2 = st.columns([1, 2])
-    
-    with down_col:
-        gap_down_df = df[df["Gap %"] < 0].copy().sort_values(by="Gap %", ascending=True) if not df.empty else pd.DataFrame()
-        if not gap_down_df.empty:
-            down_event = st.dataframe(
-                gap_down_df, use_container_width=True, hide_index=True, 
-                selection_mode="single-row", on_select="rerun", column_config=col_cfg
-            )
-            selected_down = gap_down_df.iloc[down_event.selection.rows[0]]['Ticker'] if down_event.selection.rows else gap_down_df.iloc[0]['Ticker']
-        else:
-            st.info("Gap Down yo'q")
-            selected_down = "SPY"
-            
-    with chart_col2:
-        st.plotly_chart(draw_candle_chart(selected_down), use_container_width=True, config={'displayModeBar': False}, key="gap_down_chart")
+        with col1:
+            st.markdown("<h5 style='text-align: center; color: #28a745;'>Gap Up</h5>", unsafe_allow_html=True)
+            if not gap_up_df.empty:
+                styled_up = gap_up_df.style.map(color_green, subset=['Gap %']).format({'Price': '{:.2f}', 'Gap %': '{:+.2f}%'})
+                st.dataframe(
+                    styled_up, 
+                    width='stretch',
+                    height=700,
+                    hide_index=True,
+                    column_config={
+                        "Link": st.column_config.LinkColumn("Link", display_text="🔗 News")
+                    }
+                )
+            else:
+                st.info("Gap Up yq")
+
+        with col2:
+            st.markdown("<h5 style='text-align: center; color: #dc3545;'>Gap Down</h5>", unsafe_allow_html=True)
+            if not gap_down_df.empty:
+                styled_down = gap_down_df.style.map(color_red, subset=['Gap %']).format({'Price': '{:.2f}', 'Gap %': '{:+.2f}%'})
+                st.dataframe(
+                    styled_down, 
+                    width='stretch',
+                    height=700,
+                    hide_index=True,
+                    column_config={
+                        "Link": st.column_config.LinkColumn("Link", display_text="🔗 News")
+                    }
+                )
+            else:
+                st.info("Gap Down yq")
+    else:
+        st.info("Premarketda ma'lumot topilmadi.")
