@@ -68,7 +68,7 @@ def get_dashboard_data():
         chunk = TICKERS[i:i + chunk_size]
         try:
             d_data = yf.download(chunk, period="5d", progress=False)
-            m_data = yf.download(chunk, period="1d", interval="1m", prepost=True, progress=False)
+            m_data = yf.download(chunk, period="5d", interval="1m", prepost=True, progress=False)
             
             if len(chunk) == 1:
                 d_close = d_data['Close'].to_frame(name=chunk[0])
