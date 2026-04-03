@@ -145,8 +145,8 @@ def get_dashboard_data():
 
 def draw_candle_chart(ticker):
     try:
-        # Day trading uchun qulay: oxirgi 5 kun, 15 daqiqalik timeframe
-        data = yf.download(ticker, period="5d", interval="15m", progress=False)
+        # 5m chart
+        data = yf.download(ticker, period="5d", interval="5m", progress=False)
         if len(data) == 0: return go.Figure()
         
         fig = go.Figure(data=[go.Candlestick(
@@ -174,7 +174,6 @@ with st.spinner('Skanerlanmoqda...'):
         "Link": st.column_config.LinkColumn("News")
     }
 
-    # --- GAP UP WIDGET ---
     st.markdown("<h4 style='color: #26a69a;'>Gap Up</h4>", unsafe_allow_html=True)
     up_col, chart_col1 = st.columns([1, 2])
     
@@ -187,15 +186,14 @@ with st.spinner('Skanerlanmoqda...'):
             )
             selected_up = gap_up_df.iloc[up_event.selection.rows[0]]['Ticker'] if up_event.selection.rows else "SPY"
         else:
-            st.info("Gap Up yq")
+            st.info("Gap Up yo'q")
             selected_up = "SPY"
             
     with chart_col1:
-        st.plotly_chart(draw_candle_chart(selected_up), use_container_width=True, config={'displayModeBar': False})
+        st.plotly_chart(draw_candle_chart(selected_up), use_container_width=True, config={'displayModeBar': False}, key="gap_up_chart")
 
     st.markdown("<hr style='border-color: #2b2d30;'>", unsafe_allow_html=True)
 
-    # --- GAP DOWN WIDGET ---
     st.markdown("<h4 style='color: #ef5350;'>Gap Down</h4>", unsafe_allow_html=True)
     down_col, chart_col2 = st.columns([1, 2])
     
@@ -208,8 +206,8 @@ with st.spinner('Skanerlanmoqda...'):
             )
             selected_down = gap_down_df.iloc[down_event.selection.rows[0]]['Ticker'] if down_event.selection.rows else "SPY"
         else:
-            st.info("Gap Down yq")
+            st.info("Gap Down yo'q")
             selected_down = "SPY"
             
     with chart_col2:
-        st.plotly_chart(draw_candle_chart(selected_down), use_container_width=True, config={'displayModeBar': False})
+        st.plotly_chart(draw_candle_chart(selected_down), use_container_width=True, config={'displayModeBar': False}, key="gap_down_chart")
