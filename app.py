@@ -18,8 +18,8 @@ header[data-testid="stHeader"] { background-color: #2b2d30; }
 """, unsafe_allow_html=True)
 
 # --- KALITLAR ---
-ALPACA_API_KEY = "SHU_YERGA_API_KEY_YOZING"
-ALPACA_SECRET_KEY = "SHU_YERGA_SECRET_KEY_YOZING"
+ALPACA_API_KEY = "PK55BI3HEWGNMUZGMSXMHXT4NX"
+ALPACA_SECRET_KEY = "4MeXpeZNQkM9TRyrMokm8b8CVbqd6V1zUASCXWgdsJwg"
 
 FINNHUB_API_KEY = "d76mohpr01qtg3ne69ugd76mohpr01qtg3ne69v0"
 try:
