@@ -5,6 +5,10 @@ import pandas as pd
 import datetime
 import re
 import os
+import time
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # --- FON RANGI ---
 st.set_page_config(page_title="Dashboard", layout="wide")
@@ -40,18 +44,28 @@ def get_dashboard_data():
     else:
         TICKERS = ["AMD", "NVDA", "INTC", "MU", "AAPL", "TSLA", "META", "LITE", "LLY", "NKE"]
 
+    # --- YAHOO FINANCE UCHUN ANTI-DROP SESSION ---
+    session = requests.Session()
+    retry = Retry(connect=5, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504])
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount('http://', adapter)
+    session.mount('https://', adapter)
+    session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'})
+
     gap_pct = {}
     curr_price_dict = {}
     ny_tz = 'America/New_York'
     now_ny = pd.Timestamp.now(tz=ny_tz)
     cutoff_time = now_ny - pd.Timedelta(days=3)
 
-    chunk_size = 100
+    # Chunk hajmini qisqartiramiz (Yahoo qiynalmasligi uchun)
+    chunk_size = 40 
     for i in range(0, len(TICKERS), chunk_size):
         chunk = TICKERS[i:i + chunk_size]
         try:
-            d_data = yf.download(chunk, period="5d", progress=False)
-            m_data = yf.download(chunk, period="1d", interval="1m", prepost=True, progress=False)
+            # Session orqali jo'natiladi
+            d_data = yf.download(chunk, period="5d", progress=False, session=session)
+            m_data = yf.download(chunk, period="1d", interval="1m", prepost=True, progress=False, session=session)
             
             if len(chunk) == 1:
                 d_close = d_data['Close'].to_frame(name=chunk[0])
@@ -69,7 +83,6 @@ def get_dashboard_data():
                 d_o = d_open[ticker].dropna()
                 if len(d_c) < 2: continue
                 
-                # Kunlarni aniqlash
                 d_dates = pd.to_datetime(d_c.index).tz_localize(None).date
                 last_date = d_dates[-1]
                 
@@ -78,32 +91,25 @@ def get_dashboard_data():
                 
                 m_c = m_close[ticker].dropna() if ticker in m_close.columns else pd.Series()
                 
-                # --- FINVIZ 99.99% MANTIQ ---
                 if not m_c.empty:
                     idx_ny = pd.to_datetime(m_c.index).tz_convert(ny_tz) if m_c.index.tz else pd.to_datetime(m_c.index).tz_localize('UTC').tz_convert(ny_tz)
                     latest_m_date = idx_ny[-1].date()
                     latest_time = idx_ny[-1].time()
                     
                     if latest_m_date > last_date:
-                        # Premarket (Yangi kun boshlangan, lekin Daily bar hali yq)
                         p_close = float(d_c.iloc[-1])
                         c_price = float(m_c.iloc[-1])
                     elif latest_m_date == last_date:
-                        # Bozor faoliyati boshlangan
                         if latest_time >= datetime.time(9, 30):
-                            # Finviz qoidasi: 09:30 dan keyin faqat rasmiy Open va Kechagi Close olinadi
                             p_close = float(d_c.iloc[-2])
                             c_price = float(d_o.iloc[-1])
                         else:
-                            # Premarket Live
                             p_close = float(d_c.iloc[-2])
                             c_price = float(m_c.iloc[-1])
                     else:
-                        # Bayram / Dam olish kunlari
                         p_close = float(d_c.iloc[-2])
                         c_price = float(d_o.iloc[-1])
                 else:
-                    # Premarket datasi yq bo'lsa
                     p_close = float(d_c.iloc[-2])
                     c_price = float(d_o.iloc[-1])
                     
@@ -112,6 +118,9 @@ def get_dashboard_data():
                     if abs(gap) >= GAP_THRESHOLD:
                         gap_pct[ticker] = gap
                         curr_price_dict[ticker] = c_price
+            
+            # Blokirovka bo'lmasligi uchun har guruh orasida mitti tanaffus
+            time.sleep(0.5) 
         except Exception as e:
             continue
 
@@ -120,7 +129,7 @@ def get_dashboard_data():
     
     for ticker in movers:
         try:
-            info = yf.Ticker(ticker).info
+            info = yf.Ticker(ticker, session=session).info
             today_open = curr_price_dict.get(ticker)
             gap_val = gap_pct.get(ticker)
             
