@@ -38,7 +38,7 @@ def get_dashboard_data():
             if "Ticker" in df_csv.columns:
                 TICKERS = df_csv["Ticker"].dropna().astype(str).tolist()
             else:
-                st.error("CSV faylda 'Ticker' ustuni yq. Finviz export formatini tekshiring.")
+                st.error("CSV faylda 'Ticker' ustuni yo'q. Finviz export formatini tekshiring.")
                 return pd.DataFrame()
         except Exception as e:
             st.error(f"Faylni o'qishda xatolik: {e}")
@@ -52,10 +52,11 @@ def get_dashboard_data():
     ny_tz = 'America/New_York'
     now_ny = pd.Timestamp.now(tz=ny_tz)
     
-    # --- KECHAGI KUNNI QAYTARISH ---
-    now_ny = now_ny - pd.Timedelta(days=1)
-    now_ny = now_ny.replace(hour=10, minute=30)
-    # -------------------------------
+    # --- DUSHANBA KUNI AVTOMAT O'CHADI ---
+    if now_ny.date() <= datetime.date(2026, 4, 5):
+        now_ny = now_ny - pd.Timedelta(days=1)
+        now_ny = now_ny.replace(hour=10, minute=30)
+    # ---------------------------------------
     
     today_ny = now_ny.date()
     
@@ -98,12 +99,10 @@ def get_dashboard_data():
                 
                 # FINVIZ MANTIQI:
                 if now_ny.time() >= market_open_time:
-                    # Bozor ochilgan: Qat'iy Official Open narxni oladi
                     today_opens = ticker_open[dates_d == today_ny]
                     if len(today_opens) > 0:
                         c_price = float(today_opens.iloc[0])
                     else:
-                        # Fallback to 1m data
                         if ticker in m_close.columns:
                             ticker_m = m_close[ticker].dropna()
                             idx_ny = pd.to_datetime(ticker_m.index).tz_convert(ny_tz) if ticker_m.index.tz is not None else pd.to_datetime(ticker_m.index)
@@ -111,7 +110,6 @@ def get_dashboard_data():
                             if len(reg_session) > 0:
                                 c_price = float(reg_session.iloc[0])
                 else:
-                    # Premarket: Live narx
                     if ticker in m_close.columns:
                         ticker_m = m_close[ticker].dropna()
                         if len(ticker_m) > 0:
@@ -186,6 +184,12 @@ def get_dashboard_data():
             
     return pd.DataFrame(results)
 
+# Asosiy oynadagi ogohlantirish (Dushanba kuni o'chadi)
+ny_tz_main = 'America/New_York'
+now_ny_main = pd.Timestamp.now(tz=ny_tz_main)
+if now_ny_main.date() <= datetime.date(2026, 4, 5):
+    st.warning("TEST_MODE aktiv: Dashboard kechagi ma'lumotlarni ko'rsatmoqda.")
+
 with st.spinner('Skanerlanmoqda...'):
     df = get_dashboard_data()
 
@@ -212,7 +216,7 @@ with st.spinner('Skanerlanmoqda...'):
                     }
                 )
             else:
-                st.info("Gap Up yq")
+                st.info("Gap Up yo'q")
 
         with col2:
             st.markdown("<h5 style='text-align: center; color: #dc3545;'>Gap Down</h5>", unsafe_allow_html=True)
@@ -228,6 +232,6 @@ with st.spinner('Skanerlanmoqda...'):
                     }
                 )
             else:
-                st.info("Gap Down yq")
+                st.info("Gap Down yo'q")
     else:
         st.info("Premarketda ma'lumot topilmadi.")
