@@ -39,14 +39,12 @@ def get_dashboard_data():
             TICKERS = df_csv["Ticker"].dropna().astype(str).tolist()
         except Exception: return pd.DataFrame()
     else:
-        TICKERS = ["AMD", "NVDA", "INTC", "MU", "AAPL", "TSLA", "META", "LITE", "LLY", "NKE"]
+        TICKERS = ["AAOI", "AMD", "NVDA", "INTC", "MU", "AAPL", "TSLA", "META", "LITE", "LLY", "NKE"]
 
     ny_tz = pytz.timezone('America/New_York')
     now_ny = datetime.datetime.now(ny_tz)
     today_date = now_ny.date()
-    
-    # Qat'iy chegara: Kecha soat 16:00:01 (NY vaqti)
-    cutoff_limit_ny = (now_ny - datetime.timedelta(days=1)).replace(hour=16, minute=0, second=1, microsecond=0)
+    cutoff_limit_ny = (now_ny - datetime.timedelta(days=3)).replace(hour=16, minute=0, second=1)
 
     gap_pct = {}
     curr_price_dict = {}
@@ -58,7 +56,7 @@ def get_dashboard_data():
         "accept": "application/json"
     }
 
-    # 1. GAP-larni ushlash (Kecha 16:00:01 dan keyingi barcha harakatlar)
+    # 1. GAP-larni ushlash (Sana tekshiruvisiz, faqat narx фарқи)
     chunk_size = 100
     for i in range(0, len(TICKERS), chunk_size):
         chunk = TICKERS[i:i + chunk_size]
@@ -68,18 +66,14 @@ def get_dashboard_data():
                 data = res.json()
                 for ticker, snap in data.items():
                     if not snap: continue
-                    dailyBar = snap.get('dailyBar')
                     prevDailyBar = snap.get('prevDailyBar')
-                    if not dailyBar or not prevDailyBar: continue
+                    latestTrade = snap.get('latestTrade')
                     
-                    bar_time = pd.to_datetime(dailyBar['t']).tz_convert(ny_tz)
+                    if not prevDailyBar or not latestTrade: continue
                     
-                    # FILTR: Agar Gap kecha 16:00:01 gacha yopilgan bo'lsa - kk emas
-                    if bar_time < cutoff_limit_ny:
-                        continue
-
                     prev_close = float(prevDailyBar.get('c', 0))
-                    current_price = float(dailyBar.get('o', 0))
+                    current_price = float(latestTrade.get('p', 0))
+                    
                     if prev_close > 0 and current_price > 0:
                         gap = ((current_price - prev_close) / prev_close) * 100
                         if abs(gap) >= GAP_THRESHOLD:
@@ -92,75 +86,46 @@ def get_dashboard_data():
         try:
             catalyst_url = ""
             news_time_display = "-"
-            
             if finnhub_client:
-                start_search = cutoff_limit_ny.strftime("%Y-%m-%d")
-                news = finnhub_client.company_news(ticker, _from=start_search, to=today_date.strftime("%Y-%m-%d"))
-                
+                # Yangilikni oxirgi 3 kundan qidiramiz
+                news = finnhub_client.company_news(ticker, _from=(today_date - datetime.timedelta(days=3)).strftime("%Y-%m-%d"), to=today_date.strftime("%Y-%m-%d"))
                 for article in reversed(news):
                     ts = article.get('datetime', 0)
                     article_ny_time = datetime.datetime.fromtimestamp(ts, tz=pytz.utc).astimezone(ny_tz)
-                    
-                    # Qat'iy chegara: Faqat 16:00:01 dan keyingi xabarlar
-                    if article_ny_time < cutoff_limit_ny:
-                        continue
+                    if article_ny_time < cutoff_limit_ny: continue
                     
                     headline = article['headline'].lower()
-                    found_keyword = False
-                    for keyword in CATALYST_KEYWORDS:
-                        if re.search(rf'\b{keyword}\b', headline):
-                            found_keyword = True
-                            break
-                    
-                    if found_keyword:
+                    found = any(k in headline for k in CATALYST_KEYWORDS)
+                    if found:
                         catalyst_url = article.get('url', "")
-                        # Har doim Sana + Vaqt shaklida ko'rsatish (Sizning xohishingizga ko'ra modify)
                         news_time_display = article_ny_time.strftime('%b-%d %H:%M')
                         break
-                    if catalyst_url: break
-
+            
             info = yf.Ticker(ticker).info
             results.append({
-                "Ticker": ticker, 
-                "Sector": info.get('sector', '-'), 
-                "Industry": info.get('industry', '-'),
-                "Price": curr_price_dict.get(ticker), 
-                "Gap %": gap_pct.get(ticker), 
-                "Time (NY)": news_time_display, 
-                "Link": catalyst_url 
+                "Ticker": ticker, "Sector": info.get('sector', '-'), "Industry": info.get('industry', '-'),
+                "Price": curr_price_dict.get(ticker), "Gap %": gap_pct.get(ticker), "Time (NY)": news_time_display, "Link": catalyst_url 
             })
         except Exception: continue
             
     return pd.DataFrame(results)
 
-# --- DISPLAY ---
 df = get_dashboard_data()
-ny_tz_main = pytz.timezone('America/New_York')
-now_ny_main = datetime.datetime.now(ny_tz_main)
-
 if not df.empty:
     col1, col2 = st.columns(2)
-    def color_green(val): return 'color: #28a745; font-weight: bold;'
-    def color_red(val): return 'color: #dc3545; font-weight: bold;'
-
     with col1:
         st.markdown("<h4 style='color: #28a745;'>Gap Up</h4>", unsafe_allow_html=True)
         up_df = df[df["Gap %"] > 0].sort_values(by="Gap %", ascending=False)
-        
-        st.write("**With Catalyst (Post-Market 16:00:01+)**")
-        st.dataframe(up_df[up_df["Link"] != ""].style.map(color_green, subset=['Gap %']).format({'Price': '{:.2f}', 'Gap %': '{:+.2f}%'}), width='stretch', hide_index=True, column_config={"Link": st.column_config.LinkColumn("Link", display_text="🔗 News")})
-        
+        st.write("**With Catalyst**")
+        st.dataframe(up_df[up_df["Link"] != ""], width='stretch', hide_index=True)
         st.write("**Without Catalyst**")
-        st.dataframe(up_df[up_df["Link"] == ""].style.map(color_green, subset=['Gap %']).format({'Price': '{:.2f}', 'Gap %': '{:+.2f}%'}), width='stretch', hide_index=True)
-
+        st.dataframe(up_df[up_df["Link"] == ""], width='stretch', hide_index=True)
     with col2:
         st.markdown("<h4 style='color: #dc3545;'>Gap Down</h4>", unsafe_allow_html=True)
         down_df = df[df["Gap %"] < 0].sort_values(by="Gap %", ascending=True)
-        
-        st.write("**With Catalyst (Post-Market 16:00:01+)**")
-        st.dataframe(down_df[down_df["Link"] != ""].style.map(color_red, subset=['Gap %']).format({'Price': '{:.2f}', 'Gap %': '{:+.2f}%'}), width='stretch', hide_index=True, column_config={"Link": st.column_config.LinkColumn("Link", display_text="🔗 News")})
-        
+        st.write("**With Catalyst**")
+        st.dataframe(down_df[down_df["Link"] != ""], width='stretch', hide_index=True)
         st.write("**Without Catalyst**")
-        st.dataframe(down_df[down_df["Link"] == ""].style.map(color_red, subset=['Gap %']).format({'Price': '{:.2f}', 'Gap %': '{:+.2f}%'}), width='stretch', hide_index=True)
+        st.dataframe(down_df[down_df["Link"] == ""], width='stretch', hide_index=True)
 else:
-    st.info(f"Yangi gap-lar topilmadi (NY 16:00:01 dan keyingi harakatlar kutilmoqda).")
+    st.info("Hozircha 5% gap topilmadi.")
